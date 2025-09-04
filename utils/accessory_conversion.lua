@@ -1,4 +1,5 @@
--- Roblox UGC Helper Plugin // only runs in Studio
+-- Roblox UGC Helper Plugin
+-- Only runs in Studio
 local toolbar = plugin:CreateToolbar("UGC Helper")
 local button = toolbar:CreateButton("Create UGC", "Adds Handle+HatAttachment to your mesh", "")
 
