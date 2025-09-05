@@ -1,0 +1,9 @@
+{
+  "scripts": {
+    "start": "concurrently \"npm run dev --prefix app\" \"uvicorn backend.main:app --reload\""
+  },
+  "dependencies": {
+    "concurrently": "^9.2.1",
+    "electron": "^38.0.0"
+  }
+}
