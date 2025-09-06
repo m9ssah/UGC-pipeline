@@ -6,3 +6,4 @@ backend/blender/__pycache__
 /models
 /node_modules
 /dist
+backend/__pycache__/
