@@ -1,5 +1,7 @@
 venv/
 .env
+backend/inference/__pycache__
+backend/blender/__pycache__
 /__pycache__
 /models
 /node_modules
