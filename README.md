@@ -1,4 +1,6 @@
 (NOT FINISHED, UPDATE AS U PROGRESS THRU PROJ)
+This project will enable users to automate the following steps of UGC creation:
+Text/Image Input → Text2Image Generation → 3D Model Generation (TripoSR) → Blender Processing → Roblox-Ready FBX
 
 This is a Roblox UGC (User Generated Content) pipeline that I've created so that ugc creation can be more accessible to all roblox players.
 
