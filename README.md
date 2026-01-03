@@ -9,8 +9,6 @@ This project aims to enable users automate the following steps of UGC **(Roblox 
 
 This is a Roblox UGC pipeline that I've created so that ugc creation can be more accessible to all roblox players.
 
-
-
 ## Instructions
 Here are some brief instructions on how to use this in addition to roblox studio so that you can end up creating your own roblox hats too: 
 - Open Studio → Import FBX → run AFT → Generate Accessory → Publish

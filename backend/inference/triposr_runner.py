@@ -1,82 +1,133 @@
-import onnx
-import onnxruntime as ort
 import numpy as np
 from PIL import Image
 import os
+import sys
 import logging
 from pathlib import Path
-import tempfile
+
+TRIPOSR_PATH = Path(__file__).parent.parent.parent / "models" / "TripoSR"
+if TRIPOSR_PATH.exists():
+    sys.path.insert(0, str(TRIPOSR_PATH))
+    logger_setup = logging.getLogger(__name__)
+    logger_setup.info(f"Added TripoSR to path: {TRIPOSR_PATH}")
+else:
+    logger_setup = logging.getLogger(__name__)
+    logger_setup.warning(f"TripoSR not found at: {TRIPOSR_PATH}")
 
 # logging config
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+try:
+    import torch
+    TORCH_AVAILABLE = True
+    
+    if torch.cuda.is_available():
+        GPU_AVAILABLE = True
+        GPU_NAME = torch.cuda.get_device_name(0)
+        logger.info(f"using: {GPU_NAME}")
+    else:
+        GPU_AVAILABLE = False
+        logger.warning("using cpu")
+        
+except ImportError:
+    TORCH_AVAILABLE = False
+    GPU_AVAILABLE = False
+    logger.error("pytorch not available")
+
 
 class TripoSRPipeline:
-    def __init__(self):
-        """Initialize TripoSR pipeline with ONNX Runtime and DirectML for AMD GPUs"""
-        self.model_path = "models/triposr.onnx"
-        self.session = None
-
-        if not os.path.exists(self.model_path):
-            logger.warning(f"TripoSR model not found at {self.model_path}")
-            logger.info("You need to download the TripoSR ONNX model")
+    """
+    TripoSR image-to-3D pipeline using PyTorch with ROCm.
+    
+    TripoSR: https://github.com/VAST-AI-Research/TripoSR
+    """
+    
+    def __init__(self, lazy_load: bool = True):
+        self.model = None
+        self.device = None
+        self._initialized = False
+        
+        if not TORCH_AVAILABLE:
+            logger.error("cannot initialize pipeline: pytorch not available")
             return
-
+            
+        self.device = torch.device("cuda" if GPU_AVAILABLE else "cpu")
+        logger.info(f"Pipeline will use device: {self.device}")
+        
+        if not lazy_load:
+            self._load_model()
+    
+    def _load_model(self):
+        if self._initialized:
+            return
+            
         try:
-            # trying to use DirectML if available, otherwise fallback to cpu
-            providers = []
-
-            available_providers = ort.get_available_providers()
-            if "DmlExecutionProvider" in available_providers:
-                providers.append("DmlExecutionProvider")
-                logger.info("Using DirectML")
-
-            providers.append("CPUExecutionProvider")
-
-            # create inference session
-            self.session = ort.InferenceSession(self.model_path, providers=providers)
-
-            logger.info(
-                f"TripoSR pipeline initialized with providers: {self.session.get_providers()}"
+            from models.TripoSR.tsr.system import TSR
+            
+            logger.info("Loading TripoSR model from HuggingFace...")
+            self.model = TSR.from_pretrained(
+                "stabilityai/TripoSR",
+                config_name="config.yaml",
+                weight_name="model.ckpt"
             )
-
-            # get model input/output info
-            self.input_name = self.session.get_inputs()[0].name
-            self.output_name = self.session.get_outputs()[0].name
-            self.input_shape = self.session.get_inputs()[0].shape
-
-            logger.info(f"Model input shape: {self.input_shape}")
-
+            self.model.to(self.device)
+            self.model.eval()
+            self._initialized = True
+            logger.info("TripoSR model loaded successfully")
+            
+        except ImportError as e:
+            logger.error(
+                f"TripoSR import failed: {e}\n"
+                f"Make sure TripoSR is cloned to: {TRIPOSR_PATH}\n"
+                "And dependencies are installed"
+            )
+            raise
         except Exception as e:
-            logger.error(f"Failed to initialize TripoSR: {e}")
-            self.session = None
-
-    def preprocess_image(self, image_path: str) -> np.ndarray:
-        """Preprocess image for TripoSR input"""
-        try:
-            # load and resize image
-            image = Image.open(image_path).convert("RGB")
-
-            # resize to model input size
-            target_size = (256, 256)
-            image = image.resize(target_size, Image.Resampling.LANCZOS)
-
-            # convert to numpy array + normalize
-            image_array = np.array(image).astype(np.float32)
-            image_array = image_array / 255.0
-
-            # add batch dimension and reorder to NCHW format
-            image_array = np.transpose(image_array, (2, 0, 1))
-            image_array = np.expand_dims(image_array, axis=0)
-
-            return image_array
-
-        except Exception as e:
-            logger.error(f"Error preprocessing image {image_path}: {e}")
+            logger.error(f"Failed to load TripoSR model: {e}")
             raise
 
-    def preprocess_multi_images(self, image_paths: list[str]) -> np.ndarray:
+    def preprocess_image(self, image_path: str) -> Image.Image:
+        try:
+            image = Image.open(image_path).convert("RGB")
+            logger.info(f"Loaded image: {image_path} ({image.size})")
+            return image
+        except Exception as e:
+            logger.error(f"Error loading image {image_path}: {e}")
+            raise
+
+    def generate_3d(self, image_path: str, output_dir: str = "outputs") -> str:
+        self._load_model()
+        
+        if not self.model:
+            raise RuntimeError("TripoSR model not loaded")
+        
+        try:
+            logger.info(f"Generating 3D model from: {image_path}")
+            
+            image = self.preprocess_image(image_path)
+            
+            with torch.no_grad():
+                scene_codes = self.model([image], device=self.device)
+                meshes = self.model.extract_mesh(scene_codes)
+            
+            output_dir = Path(output_dir)
+            output_dir.mkdir(parents=True, exist_ok=True)
+            
+            mesh_filename = f"mesh_{os.urandom(4).hex()}.obj"
+            mesh_path = output_dir / mesh_filename
+            
+            # triposr returns trimesh objects
+            meshes[0].export(str(mesh_path))
+            
+            logger.info(f"3D mesh saved to: {mesh_path}")
+            return str(mesh_path)
+            
+        except Exception as e:
+            logger.error(f"Error generating 3D model: {e}")
+            raise
+
+    def preprocess_multi_images(self, image_paths: list[str]) -> list[Image.Image]:
         """Preprocess multiple images for multi-view 3D reconstruction"""
         processed_images = []
 
@@ -88,38 +139,36 @@ class TripoSRPipeline:
         if len(processed_images) == 1:
             return processed_images[0]
         else:
-            return np.concatenate(processed_images, axis=0)
+            return processed_images
 
     async def generate_3d_from_images(self, image_paths: list[str]) -> str:
-        """Generate 3D mesh from multiple images"""
-        if not self.session:
-            raise Exception("TripoSR pipeline not initialized")
+        self._load_model()
+        
+        if not self.model:
+            raise RuntimeError("TripoSR model not loaded")
 
         try:
             logger.info(f"Generating 3D model from {len(image_paths)} images")
 
-            input_data = self.preprocess_multi_images(image_paths)
+            images = self.preprocess_multi_images(image_paths)
 
-            outputs = self.session.run(
-                [self.output_name], {self.input_name: input_data}
-            )
-
-            # process output (mesh vertices, faces, etc.)
-            mesh_data = outputs[0]
+            with torch.no_grad():
+                scene_codes = self.model(images, device=self.device)
+                meshes = self.model.extract_mesh(scene_codes)
 
             # save mesh to temporary file
             output_dir = Path("temp/meshes")
             output_dir.mkdir(parents=True, exist_ok=True)
 
-            mesh_file = output_dir / f"mesh_{len(os.listdir(output_dir))}.obj"
-            self.save_mesh_as_obj(mesh_data, str(mesh_file))
+            mesh_file = output_dir / f"mesh_{os.urandom(4).hex()}.obj"
+            meshes[0].export(str(mesh_file))
 
             logger.info(f"3D mesh saved to {mesh_file}")
             return str(mesh_file)
 
         except Exception as e:
             logger.error(f"Error generating 3D model: {e}")
-            raise Exception(f"Failed to generate 3D model: {str(e)}")
+            raise
 
     async def generate_3d_from_single_image(self, image_path: str) -> str:
         """Generate 3D mesh from a single image"""
@@ -131,25 +180,8 @@ class TripoSRPipeline:
         TODO: adapt based on actual model output format
         """
         try:
-            # TripoSR typically outputs vertices and faces
-
-            # Assuming mesh_data contains vertices and faces
-            # You may need to adjust this based on the actual model output format
-
             with open(output_path, "w") as f:
                 f.write("# Generated by TripoSR\n")
-
-                # Write vertices (placeholder - adapt to your model output)
-                # vertices = mesh_data[0]  # Adjust indexing based on model
-                # for vertex in vertices:
-                #     f.write(f"v {vertex[0]} {vertex[1]} {vertex[2]}\n")
-
-                # Write faces (placeholder - adapt to your model output)
-                # faces = mesh_data[1]  # Adjust indexing based on model
-                # for face in faces:
-                #     f.write(f"f {face[0]+1} {face[1]+1} {face[2]+1}\n")
-
-                # For now, create a simple placeholder cube
                 self.write_placeholder_cube(f)
 
             logger.info(f"Mesh saved as OBJ: {output_path}")
@@ -211,28 +243,3 @@ class TripoSRPipeline:
 
 # init global instance
 triposr_pipeline = TripoSRPipeline()
-
-
-def print_model_download_instructions():
-    """Print instructions for downloading the TripoSR model"""
-    print("\n" + "=" * 60)
-    print("TripoSR Model Download Instructions")
-    print("=" * 60)
-    print("The TripoSR ONNX model is required for 3D generation.")
-    print("Please download it from one of these sources:")
-    print("")
-    print("1. Official TripoSR repository:")
-    print("   https://github.com/VAST-AI-Research/TripoSR")
-    print("")
-    print("2. Hugging Face:")
-    print("   https://huggingface.co/stabilityai/TripoSR")
-    print("")
-    print("3. Convert PyTorch model to ONNX:")
-    print("   Follow the conversion guide in the repository")
-    print("")
-    print(f"Place the model file at: {os.path.abspath('models/triposr.onnx')}")
-    print("=" * 60)
-
-
-if not os.path.exists("models/triposr.onnx"):
-    print_model_download_instructions()
