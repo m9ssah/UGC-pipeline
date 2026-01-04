@@ -8,9 +8,9 @@ import os
 import asyncio
 from pathlib import Path
 
-from inference.text2image_runner import Text2ImagePipeline
+# from inference.text2image_runner import Text2ImagePipeline  # TODO: implement later
 from inference.triposr_runner import TripoSRPipeline
-from blender.blender_preprocess import BlenderProcessor
+# from blender.blender_preprocess import BlenderProcessor  # TODO: implement later
 
 app = FastAPI(title="Roblox UGC Pipeline API", version="1.0.0")
 
@@ -23,9 +23,9 @@ app.add_middleware(
 )
 
 # init ML pipelines
-text2image = Text2ImagePipeline()
+# text2image = Text2ImagePipeline()  # TODO: implement later
 triposr = TripoSRPipeline()
-blender_processor = BlenderProcessor()
+# blender_processor = BlenderProcessor()  # TODO: implement later
 
 
 # dantic models for request/response

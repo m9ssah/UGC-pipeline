@@ -63,7 +63,7 @@ class TripoSRPipeline:
             return
             
         try:
-            from models.TripoSR.tsr.system import TSR
+            from tsr.system import TSR
             
             logger.info("Loading TripoSR model from HuggingFace...")
             self.model = TSR.from_pretrained(
