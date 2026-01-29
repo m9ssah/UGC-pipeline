@@ -71,7 +71,7 @@ class BlenderProcessor:
             
             fbx_output = output_dir / f"ugc_{task_id}.fbx"
             
-            # create Blender script
+            # create Blender script (only 2 parameters now)
             script_content = self.generate_blender_script(
                 input_path=mesh_path,
                 fbx_output=str(fbx_output),
@@ -116,7 +116,7 @@ class BlenderProcessor:
             logger.error(f"Error in Blender processing: {e}")
             raise
     
-    def generate_blender_script(self, input_path: str, fbx_output: str, rbxm_output: str) -> str:
+    def generate_blender_script(self, input_path: str, fbx_output: str) -> str:
         """Generate Blender Python script for processing"""
         return f'''
 import bpy
